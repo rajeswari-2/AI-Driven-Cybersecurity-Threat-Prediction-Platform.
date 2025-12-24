@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.multi-agent-analysis]
 verify_jwt = false
+
+[functions.export-to-cloud]
+verify_jwt = false

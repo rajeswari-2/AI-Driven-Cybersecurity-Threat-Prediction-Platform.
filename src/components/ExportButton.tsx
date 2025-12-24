@@ -174,7 +174,6 @@ export function ExportButton({ data, collection, label = 'Export' }: ExportButto
       collection,
       exportedAt: new Date().toISOString(),
       data,
-      config: { platform: selectedPlatform, ...config }
     };
     
     // Validate config
@@ -185,22 +184,35 @@ export function ExportButton({ data, collection, label = 'Export' }: ExportButto
     }
     
     try {
-      // Save config for future use (localStorage simulation)
+      // Save config for future use (localStorage)
       localStorage.setItem(`export_config_${selectedPlatform}`, JSON.stringify(config));
       
-      // Simulate cloud export (in real implementation, this would call an edge function)
       toast.loading(`Connecting to ${selectedPlatform.toUpperCase()}...`);
       
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Call the edge function for cloud export
+      const response = await fetch('https://icnnqilmwytviqxbybzn.supabase.co/functions/v1/export-to-cloud', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          platform: selectedPlatform,
+          data: exportData,
+          collection,
+          config,
+        }),
+      });
       
-      // In a real implementation, you would call your edge function here
-      // const response = await supabase.functions.invoke('export-to-cloud', {
-      //   body: exportData
-      // });
+      const result = await response.json();
       
       toast.dismiss();
-      toast.success(`Data exported to ${selectedPlatform.toUpperCase()} successfully`);
+      
+      if (result.error) {
+        toast.error(`Export failed: ${result.error}`);
+        return;
+      }
+      
+      toast.success(result.message || `Data exported to ${selectedPlatform.toUpperCase()} successfully`);
       setConfigDialogOpen(false);
       
       // Also download a backup JSON file
@@ -214,9 +226,9 @@ export function ExportButton({ data, collection, label = 'Export' }: ExportButto
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-    } catch (error) {
+    } catch (error: any) {
       toast.dismiss();
-      toast.error(`Failed to export to ${selectedPlatform}`);
+      toast.error(`Failed to export to ${selectedPlatform}: ${error.message || 'Unknown error'}`);
     }
   };
 
