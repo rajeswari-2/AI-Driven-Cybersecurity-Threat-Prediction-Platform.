@@ -52,20 +52,18 @@ export default function StaticScanner() {
     }, 200);
 
     try {
-      // Convert file to base64 for edge function
-      const reader = new FileReader();
-      const fileData = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // Generate a simple hash for the file
+      const arrayBuffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const fileHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
-      const { data, error } = await supabase.functions.invoke('analyze-file', {
+      const { data, error } = await supabase.functions.invoke('scan-static', {
         body: { 
           filename: file.name,
-          filesize: file.size,
-          filetype: file.type,
-          filedata: fileData
+          fileSize: file.size,
+          fileType: file.type || file.name.split('.').pop()?.toUpperCase(),
+          fileHash: `SHA256:${fileHash}`
         }
       });
 
@@ -74,7 +72,24 @@ export default function StaticScanner() {
 
       if (error) throw error;
       
-      setScanResults(data);
+      // Transform response to match expected format
+      const results = {
+        risk_score: data.threat_score || 0,
+        detection_ratio: `${data.indicators?.length || 0}/10`,
+        file_type: data.file_info?.fileType || file.type,
+        file_size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+        scan_engines: data.indicators?.map((ind: any) => ({
+          name: ind.type,
+          status: ind.severity === 'critical' || ind.severity === 'high' ? 'malicious' : 'clean',
+          result: ind.description
+        })) || [],
+        behaviors: data.yara_matches || [],
+        recommendation: data.recommendation || 'No specific recommendation',
+        md5: 'N/A',
+        sha256: data.file_info?.fileHash || fileHash
+      };
+      
+      setScanResults(results);
       setStatus('completed');
       toast.success('File analysis completed');
     } catch (error: any) {
