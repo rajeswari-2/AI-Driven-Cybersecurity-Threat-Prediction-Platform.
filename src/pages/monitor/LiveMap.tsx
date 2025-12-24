@@ -1,12 +1,14 @@
-import { Activity, AlertTriangle, Shield, Filter, Pause, Play, Maximize2, RefreshCw, Loader2 } from 'lucide-react';
+import { Activity, AlertTriangle, Shield, Filter, Pause, Play, Maximize2, RefreshCw, Loader2, Globe, Map, Satellite } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useLiveThreatData } from '@/hooks/useLiveThreatData';
+import { Globe3D } from '@/components/Globe3D';
 
 // Simple SVG World Map component
 const WorldMap = ({ attacks }: { attacks: any[] }) => {
@@ -71,8 +73,117 @@ const WorldMap = ({ attacks }: { attacks: any[] }) => {
   );
 };
 
+// Satellite Map Component (using OpenStreetMap tiles as placeholder)
+const SatelliteMap = ({ attacks }: { attacks: any[] }) => {
+  return (
+    <div className="relative w-full h-full bg-slate-900 rounded-lg overflow-hidden">
+      {/* Satellite-style dark background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900" />
+      
+      {/* Simulated satellite view with terrain */}
+      <svg viewBox="0 0 1000 500" className="w-full h-full relative z-10" style={{ background: 'transparent' }}>
+        {/* Ocean background */}
+        <rect width="1000" height="500" fill="#0c1929" />
+        
+        {/* Continents with satellite-style coloring */}
+        <g fill="#1a3a2f" stroke="#2d5a4a" strokeWidth="1">
+          {/* North America */}
+          <path d="M80,80 Q120,60 180,70 Q240,80 280,120 Q300,160 280,200 Q250,240 200,260 Q150,250 120,220 Q80,180 70,140 Q70,100 80,80 Z" />
+          {/* South America */}
+          <path d="M200,280 Q240,270 270,290 Q290,330 280,380 Q260,420 230,440 Q190,430 180,390 Q170,340 200,280 Z" />
+          {/* Europe */}
+          <path d="M440,80 Q480,70 520,80 Q540,100 530,130 Q510,150 470,160 Q440,150 430,120 Q430,90 440,80 Z" />
+          {/* Africa */}
+          <path d="M450,170 Q500,160 540,180 Q560,220 550,280 Q530,340 490,370 Q450,360 430,310 Q420,250 430,200 Q440,180 450,170 Z" />
+          {/* Asia */}
+          <path d="M550,60 Q650,50 750,70 Q820,100 830,160 Q820,220 750,250 Q680,260 620,240 Q570,210 550,160 Q540,100 550,60 Z" />
+          {/* Australia */}
+          <path d="M780,300 Q830,290 870,310 Q890,340 880,380 Q850,400 810,400 Q770,390 760,360 Q760,330 780,300 Z" />
+        </g>
+        
+        {/* City lights effect */}
+        {[
+          { x: 180, y: 140, size: 3 }, // NYC
+          { x: 140, y: 160, size: 2 }, // LA
+          { x: 240, y: 330, size: 2 }, // São Paulo
+          { x: 470, y: 110, size: 3 }, // London
+          { x: 490, y: 120, size: 2 }, // Paris
+          { x: 590, y: 130, size: 2 }, // Moscow
+          { x: 720, y: 150, size: 3 }, // Beijing
+          { x: 750, y: 170, size: 3 }, // Tokyo
+          { x: 650, y: 210, size: 2 }, // Mumbai
+          { x: 840, y: 340, size: 2 }, // Sydney
+        ].map((city, i) => (
+          <circle key={i} cx={city.x} cy={city.y} r={city.size} fill="#fbbf24" opacity="0.6">
+            <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" repeatCount="indefinite" begin={`${i * 0.2}s`} />
+          </circle>
+        ))}
+
+        {/* Attack visualization */}
+        {attacks.slice(0, 15).map((attack) => {
+          const sourceX = ((attack.source_lng + 180) / 360) * 1000;
+          const sourceY = ((90 - attack.source_lat) / 180) * 500;
+          const targetX = ((attack.target_lng + 180) / 360) * 1000;
+          const targetY = ((90 - attack.target_lat) / 180) * 500;
+          
+          const color = attack.severity === 'critical' ? '#ef4444' :
+                       attack.severity === 'high' ? '#f59e0b' :
+                       attack.severity === 'medium' ? '#3b82f6' :
+                       '#22c55e';
+
+          return (
+            <g key={attack.id}>
+              {/* Attack arc with glow */}
+              <line x1={sourceX} y1={sourceY} x2={targetX} y2={targetY}
+                stroke={color} strokeWidth="2" opacity="0.8" strokeDasharray="8,4">
+                <animate attributeName="stroke-dashoffset" from="12" to="0" dur="0.5s" repeatCount="indefinite" />
+              </line>
+              {/* Source point with pulse */}
+              <circle cx={sourceX} cy={sourceY} r="6" fill={color} opacity="0.3">
+                <animate attributeName="r" values="6;15;6" dur="1.5s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.3;0;0.3" dur="1.5s" repeatCount="indefinite" />
+              </circle>
+              <circle cx={sourceX} cy={sourceY} r="4" fill={color} />
+              {/* Target point */}
+              <circle cx={targetX} cy={targetY} r="3" fill="#60a5fa" />
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Satellite view overlay info */}
+      <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded px-3 py-2 border border-cyan-500/30">
+        <div className="flex items-center gap-2">
+          <Satellite className="h-4 w-4 text-cyan-400" />
+          <span className="text-xs text-cyan-400 font-mono">SATELLITE VIEW</span>
+        </div>
+        <p className="text-xs text-slate-400 mt-1">Real-time threat overlay</p>
+      </div>
+
+      {/* Legend */}
+      <div className="absolute bottom-4 left-4 bg-black/70 backdrop-blur-sm rounded-lg p-3 border border-slate-700">
+        <p className="text-xs font-semibold mb-2 text-slate-300">Threat Level</p>
+        <div className="space-y-1">
+          {[
+            { label: 'Critical', color: 'bg-red-500' },
+            { label: 'High', color: 'bg-amber-500' },
+            { label: 'Medium', color: 'bg-blue-500' },
+            { label: 'Low', color: 'bg-green-500' },
+          ].map((item) => (
+            <div key={item.label} className="flex items-center gap-2">
+              <div className={cn('h-2 w-2 rounded-full', item.color)} />
+              <span className="text-xs text-slate-400">{item.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function LiveMap() {
   const [filter, setFilter] = useState('all');
+  const [viewMode, setViewMode] = useState<'flat' | '3d' | 'satellite'>('3d');
   const { 
     attacks, 
     threatData, 
@@ -101,6 +212,7 @@ export default function LiveMap() {
     target_lat: attack.target_lat || 0,
     target_lng: attack.target_lng || 0,
     timestamp: attack.detected_at,
+    attack_type: attack.attack_type,
     confidence: Math.floor(Math.random() * 30) + 70
   }));
 
@@ -128,14 +240,60 @@ export default function LiveMap() {
     }
   };
 
+  const renderMapView = () => {
+    if (isLoading && attacks.length === 0) {
+      return (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/80">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      );
+    }
+
+    switch (viewMode) {
+      case '3d':
+        return (
+          <Suspense fallback={
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading 3D Globe...</span>
+            </div>
+          }>
+            <Globe3D attacks={filteredAttacks} />
+          </Suspense>
+        );
+      case 'satellite':
+        return <SatelliteMap attacks={filteredAttacks} />;
+      default:
+        return <WorldMap attacks={filteredAttacks} />;
+    }
+  };
+
   return (
     <div className="space-y-6 h-full">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Live Attack Map</h1>
-          <p className="text-muted-foreground">Real-time AI-powered global cyber attack monitoring (synced to database)</p>
+          <p className="text-muted-foreground">Real-time AI-powered global cyber attack monitoring</p>
         </div>
         <div className="flex items-center gap-3">
+          {/* View Mode Selector */}
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="mr-2">
+            <TabsList className="h-9">
+              <TabsTrigger value="flat" className="px-3">
+                <Map className="h-4 w-4 mr-1" />
+                2D
+              </TabsTrigger>
+              <TabsTrigger value="3d" className="px-3">
+                <Globe className="h-4 w-4 mr-1" />
+                3D
+              </TabsTrigger>
+              <TabsTrigger value="satellite" className="px-3">
+                <Satellite className="h-4 w-4 mr-1" />
+                Satellite
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          
           <Button variant="outline" size="sm" onClick={refresh} disabled={isLoading}>
             <RefreshCw className={cn("h-4 w-4 mr-2", isLoading && "animate-spin")} />
             Refresh
@@ -193,13 +351,7 @@ export default function LiveMap() {
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[500px]">
         <div className="lg:col-span-2 cyber-card rounded-xl border border-border overflow-hidden relative">
-          {isLoading && attacks.length === 0 ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/80">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : (
-            <WorldMap attacks={filteredAttacks} />
-          )}
+          {renderMapView()}
         </div>
 
         <div className="cyber-card rounded-xl border border-border flex flex-col">
