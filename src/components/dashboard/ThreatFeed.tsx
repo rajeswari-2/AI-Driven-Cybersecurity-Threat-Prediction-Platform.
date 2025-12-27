@@ -1,7 +1,8 @@
-import { Shield, ShieldOff, AlertTriangle } from 'lucide-react';
+import { Shield, ShieldOff, AlertTriangle, Lock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -18,9 +19,11 @@ interface ThreatFeedProps {
   attacks: Attack[];
   isLoading: boolean;
   onBlockAttack?: (attackId: string, sourceIp: string, attackType: string, severity: string, reason: string) => Promise<boolean>;
+  /** When true, shows "Admin Only" badge instead of block buttons */
+  showAdminOnlyHint?: boolean;
 }
 
-export function ThreatFeed({ attacks, isLoading, onBlockAttack }: ThreatFeedProps) {
+export function ThreatFeed({ attacks, isLoading, onBlockAttack, showAdminOnlyHint = false }: ThreatFeedProps) {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'critical': return 'bg-destructive text-white';
@@ -43,6 +46,8 @@ export function ThreatFeed({ attacks, isLoading, onBlockAttack }: ThreatFeedProp
     }
   };
 
+  const canBlock = Boolean(onBlockAttack);
+
   return (
     <div className="cyber-card rounded-xl border border-border flex flex-col h-[400px]">
       <div className="p-4 border-b border-border flex items-center justify-between">
@@ -50,10 +55,25 @@ export function ThreatFeed({ attacks, isLoading, onBlockAttack }: ThreatFeedProp
           <AlertTriangle className="h-5 w-5 text-warning" />
           Live Threat Feed
         </h3>
-        <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
-        </span>
+        <div className="flex items-center gap-2">
+          {showAdminOnlyHint && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="text-warning border-warning/40 bg-warning/10 gap-1 text-xs">
+                  <Lock className="h-3 w-3" />
+                  Admin Only
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Admin role required to block attacks</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+          </span>
+        </div>
       </div>
       
       <ScrollArea className="flex-1 p-4">
@@ -78,7 +98,7 @@ export function ThreatFeed({ attacks, isLoading, onBlockAttack }: ThreatFeedProp
                     </Badge>
                     <span className="text-sm font-medium">{attack.attack_type}</span>
                   </div>
-                  {onBlockAttack && (
+                  {canBlock ? (
                     <Button 
                       variant="ghost" 
                       size="sm" 
@@ -88,7 +108,11 @@ export function ThreatFeed({ attacks, isLoading, onBlockAttack }: ThreatFeedProp
                       <ShieldOff className="h-3 w-3 mr-1" />
                       Block
                     </Button>
-                  )}
+                  ) : showAdminOnlyHint ? (
+                    <Badge variant="outline" className="text-muted-foreground text-[10px] gap-0.5">
+                      <Lock className="h-2.5 w-2.5" />
+                    </Badge>
+                  ) : null}
                 </div>
                 <div className="text-xs text-muted-foreground flex items-center justify-between">
                   <span>
