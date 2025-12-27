@@ -6,12 +6,61 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // SECURITY: Validate authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Verify JWT and get user
+    const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const { data: { user }, error: authError } = await userSupabase.auth.getUser();
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired authentication token' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Authenticated user ${user.id} attempting to block entity`);
+
+    // Use service role for database operations (after auth verification)
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // SECURITY: Check if user is admin - blocking is a privileged operation
+    const { data: userRole, error: roleError } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .single();
+
+    if (roleError || !userRole || userRole.role !== 'admin') {
+      console.warn(`Non-admin user ${user.id} attempted to block entity`);
+      return new Response(
+        JSON.stringify({ error: 'Forbidden - Admin role required to block entities' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Admin user ${user.id} authorized to block entity`);
+
     const { 
       type, // 'ip' | 'domain' | 'api_key'
       value,
@@ -36,10 +85,6 @@ serve(async (req) => {
       );
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
     // Check if already blocked
     const { data: existing } = await supabase
       .from('blocked_entities')
@@ -59,13 +104,14 @@ serve(async (req) => {
       );
     }
 
-    // Add to blocked_entities
+    // Add to blocked_entities with the blocking user
     const { data: blockedEntity, error: blockError } = await supabase
       .from('blocked_entities')
       .insert({
         type,
         value,
-        reason: reason || `Blocked via API - ${attack_type || 'Manual block'}`
+        reason: reason || `Blocked via API - ${attack_type || 'Manual block'}`,
+        blocked_by: user.id
       })
       .select()
       .single();
@@ -82,12 +128,14 @@ serve(async (req) => {
         attack_type: attack_type || 'Unknown',
         severity: severity || 'medium',
         auto_blocked,
-        reason: reason || `Manually blocked`
+        reason: reason || `Manually blocked by admin`,
+        blocked_by: user.id
       });
     }
 
-    // Log the action
+    // Log the action with authenticated user ID
     await supabase.from('audit_logs').insert({
+      user_id: user.id,
       action: 'entity_blocked',
       resource_type: 'blocked_entities',
       resource_id: blockedEntity.id,
@@ -108,13 +156,14 @@ serve(async (req) => {
         type,
         value,
         reason,
+        blocked_by: user.id,
         timestamp: new Date().toISOString()
       },
       log_type: 'security',
       source: 'block-entity'
     });
 
-    console.log(`Blocked ${type}: ${value}`);
+    console.log(`Admin ${user.id} blocked ${type}: ${value}`);
 
     return new Response(
       JSON.stringify({ 
