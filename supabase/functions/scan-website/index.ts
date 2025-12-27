@@ -7,6 +7,62 @@ const corsHeaders = {
 };
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+// SECURITY: URL validation to prevent SSRF attacks
+function validateUrl(urlString: string): { valid: boolean; error?: string; url?: URL } {
+  let url: URL;
+  
+  try {
+    url = new URL(urlString);
+  } catch (e) {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+
+  // Only allow HTTP/HTTPS protocols
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    return { valid: false, error: 'Only HTTP and HTTPS protocols are allowed' };
+  }
+
+  const hostname = url.hostname.toLowerCase();
+
+  // Block localhost and loopback
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0') {
+    return { valid: false, error: 'Localhost access is not allowed' };
+  }
+
+  // Block private IPv4 ranges
+  const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+  const ipv4Match = hostname.match(ipv4Regex);
+  if (ipv4Match) {
+    const [_, a, b, c, d] = ipv4Match.map(Number);
+    if (
+      (a === 10) || // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168) || // 192.168.0.0/16
+      (a === 169 && b === 254) || // 169.254.0.0/16 (link-local, cloud metadata)
+      (a === 127) || // 127.0.0.0/8
+      (a === 0) // 0.0.0.0/8
+    ) {
+      return { valid: false, error: 'Private IP ranges are not allowed' };
+    }
+  }
+
+  // Block cloud metadata endpoints
+  const blockedDomains = [
+    'metadata.google.internal',
+    'metadata',
+    'instance-data',
+    '169.254.169.254',
+    'metadata.azure.com'
+  ];
+  if (blockedDomains.some(d => hostname.includes(d))) {
+    return { valid: false, error: 'Cloud metadata endpoints are not allowed' };
+  }
+
+  return { valid: true, url };
+}
 
 async function analyzeWithGemini(url: string, scanData: any): Promise<any> {
   const prompt = `You are a cybersecurity expert. Analyze this website scan data and provide a security assessment.
@@ -94,19 +150,54 @@ serve(async (req) => {
   }
 
   try {
-    const { url } = await req.json();
+    // SECURITY: Validate authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Verify JWT and get user
+    const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const { data: { user }, error: authError } = await userSupabase.auth.getUser();
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired authentication token' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Authenticated user ${user.id} initiating website scan`);
+
+    const { url: urlString } = await req.json();
     
-    if (!url) {
+    if (!urlString) {
       return new Response(
         JSON.stringify({ error: 'URL is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    // SECURITY: Validate URL to prevent SSRF
+    const validation = validateUrl(urlString);
+    if (!validation.valid) {
+      console.warn(`URL validation failed for ${urlString}: ${validation.error}`);
+      return new Response(
+        JSON.stringify({ error: validation.error }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const url = validation.url!.href;
     console.log(`Starting website scan for: ${url}`);
 
-    // Check monitoring status
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    // Use service role for database operations
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -123,7 +214,7 @@ serve(async (req) => {
     }
 
     // Check if domain is blocked
-    const domain = new URL(url).hostname;
+    const domain = validation.url!.hostname;
     const { data: blockedEntity } = await supabase
       .from('blocked_entities')
       .select('*')
@@ -213,7 +304,7 @@ serve(async (req) => {
 
     analysisResult.scan_duration = `${((Date.now() - startTime) / 1000).toFixed(1)}s`;
 
-    // Store scan result
+    // Store scan result with user ID
     await supabase.from('scan_results').insert({
       scan_type: 'website',
       target: url,
@@ -221,7 +312,8 @@ serve(async (req) => {
       result: analysisResult,
       threats_found: analysisResult.total_vulnerabilities || 0,
       severity: analysisResult.risk_score > 70 ? 'critical' : analysisResult.risk_score > 50 ? 'high' : 'medium',
-      completed_at: new Date().toISOString()
+      completed_at: new Date().toISOString(),
+      created_by: user.id
     });
 
     // If threats found, create threat record
@@ -236,7 +328,15 @@ serve(async (req) => {
       });
     }
 
-    console.log('Website scan completed:', url);
+    // Audit log the scan
+    await supabase.from('audit_logs').insert({
+      user_id: user.id,
+      action: 'website_scan',
+      resource_type: 'scan',
+      details: { url, threats_found: analysisResult.total_vulnerabilities || 0 }
+    });
+
+    console.log(`Website scan completed for user ${user.id}: ${url}`);
 
     return new Response(
       JSON.stringify(analysisResult),
