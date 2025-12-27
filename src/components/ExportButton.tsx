@@ -184,16 +184,25 @@ export function ExportButton({ data, collection, label = 'Export' }: ExportButto
     }
     
     try {
-      // Save config for future use (localStorage)
-      localStorage.setItem(`export_config_${selectedPlatform}`, JSON.stringify(config));
+      // SECURITY: Credentials are NOT stored - they are used immediately and discarded
+      // This prevents credential exposure via XSS or localStorage access
       
       toast.loading(`Connecting to ${selectedPlatform.toUpperCase()}...`);
       
-      // Call the edge function for cloud export
+      // Call the edge function for cloud export with authentication
+      const { data: { session } } = await import('@/integrations/supabase/client').then(m => m.supabase.auth.getSession());
+      
+      if (!session) {
+        toast.dismiss();
+        toast.error('Authentication required. Please log in to export data.');
+        return;
+      }
+      
       const response = await fetch('https://icnnqilmwytviqxbybzn.supabase.co/functions/v1/export-to-cloud', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           platform: selectedPlatform,

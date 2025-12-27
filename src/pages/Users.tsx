@@ -102,6 +102,9 @@ export default function Users() {
   };
 
   const updateUserRole = async (userId: string, newRole: AppRole) => {
+    // NOTE: This client-side check is for UI/UX purposes only.
+    // The actual authorization is enforced by RLS policies on user_roles table
+    // which require admin role to UPDATE/INSERT/DELETE.
     if (currentUserRole !== 'admin') {
       toast({ 
         title: 'Access Denied', 

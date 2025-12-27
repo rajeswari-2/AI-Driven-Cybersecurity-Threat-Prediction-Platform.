@@ -1,9 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
 interface ExportRequest {
   platform: 'mongodb' | 'aws' | 'azure' | 'mysql';
@@ -288,6 +292,31 @@ serve(async (req) => {
   }
 
   try {
+    // SECURITY: Validate authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Verify the JWT token and get the user
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired authentication token' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Authenticated user ${user.id} initiating export`);
+
     const { platform, data, collection, config }: ExportRequest = await req.json();
     
     console.log(`Starting export to ${platform} for collection: ${collection}`);
@@ -298,6 +327,14 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Audit log the export attempt
+    await supabaseClient.from('audit_logs').insert({
+      user_id: user.id,
+      action: 'cloud_export',
+      resource_type: 'export',
+      details: { platform, collection, timestamp: new Date().toISOString() }
+    });
 
     const fileName = `${collection}_${new Date().toISOString().split('T')[0]}_${Date.now()}`;
     let result;
@@ -322,7 +359,7 @@ serve(async (req) => {
         );
     }
 
-    console.log(`Export to ${platform} completed:`, result);
+    console.log(`Export to ${platform} completed for user ${user.id}:`, result);
 
     return new Response(
       JSON.stringify(result),
