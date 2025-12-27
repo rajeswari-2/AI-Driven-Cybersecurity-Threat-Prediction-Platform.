@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { ExportButton } from '@/components/ExportButton';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
 import {
   LineChart,
   Line,
@@ -24,6 +25,7 @@ import {
 type ScanStatus = 'idle' | 'scanning' | 'completed';
 
 export default function APIScanner() {
+  const { user } = useAuth();
   const [endpoint, setEndpoint] = useState('');
   const [method, setMethod] = useState('GET');
   const [headers, setHeaders] = useState('');
@@ -81,9 +83,28 @@ export default function APIScanner() {
 
       if (error) throw error;
       
+      // Save scan result to database
+      const vulnCount = data.vulnerabilities?.length || 0;
+      const severity = vulnCount > 5 ? 'critical' : vulnCount > 2 ? 'high' : vulnCount > 0 ? 'medium' : 'low';
+      
+      const { error: saveError } = await supabase.from('scan_results').insert({
+        scan_type: 'api',
+        target: endpoint,
+        status: 'completed',
+        result: { ...data, method, analyzeJwt: authEnabled },
+        threats_found: vulnCount,
+        severity,
+        completed_at: new Date().toISOString(),
+        created_by: user?.id
+      });
+
+      if (saveError) {
+        console.warn('Failed to save scan result:', saveError);
+      }
+      
       setScanResults(data);
       setStatus('completed');
-      toast.success('API scan completed');
+      toast.success('API scan completed and saved');
     } catch (error: any) {
       clearInterval(progressInterval);
       toast.error(`Scan failed: ${error.message}`);
