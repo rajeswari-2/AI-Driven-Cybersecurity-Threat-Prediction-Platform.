@@ -8,10 +8,12 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { ExportButton } from '@/components/ExportButton';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
 
 type ScanStatus = 'idle' | 'scanning' | 'completed';
 
 export default function WebsiteScanner() {
+  const { user } = useAuth();
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState<ScanStatus>('idle');
   const [progress, setProgress] = useState(0);
@@ -39,9 +41,25 @@ export default function WebsiteScanner() {
 
       if (error) throw error;
       
+      // Save scan result to database
+      const { error: saveError } = await supabase.from('scan_results').insert({
+        scan_type: 'website',
+        target: url,
+        status: 'completed',
+        result: data,
+        threats_found: data.total_vulnerabilities || 0,
+        severity: data.risk_score >= 70 ? 'critical' : data.risk_score >= 50 ? 'high' : data.risk_score >= 30 ? 'medium' : 'low',
+        completed_at: new Date().toISOString(),
+        created_by: user?.id
+      });
+
+      if (saveError) {
+        console.warn('Failed to save scan result:', saveError);
+      }
+      
       setScanResults(data);
       setStatus('completed');
-      toast.success('Scan completed successfully');
+      toast.success('Scan completed and saved');
     } catch (error: any) {
       clearInterval(progressInterval);
       toast.error(`Scan failed: ${error.message}`);

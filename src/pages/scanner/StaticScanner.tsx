@@ -6,10 +6,12 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { ExportButton } from '@/components/ExportButton';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
 
 type ScanStatus = 'idle' | 'uploading' | 'scanning' | 'completed';
 
 export default function StaticScanner() {
+  const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<ScanStatus>('idle');
   const [progress, setProgress] = useState(0);
@@ -89,9 +91,25 @@ export default function StaticScanner() {
         sha256: data.file_info?.fileHash || fileHash
       };
       
+      // Save scan result to database
+      const { error: saveError } = await supabase.from('scan_results').insert({
+        scan_type: 'static',
+        target: file.name,
+        status: 'completed',
+        result: { ...results, raw_data: data },
+        threats_found: data.indicators?.length || 0,
+        severity: results.risk_score >= 70 ? 'critical' : results.risk_score >= 40 ? 'high' : results.risk_score >= 20 ? 'medium' : 'low',
+        completed_at: new Date().toISOString(),
+        created_by: user?.id
+      });
+
+      if (saveError) {
+        console.warn('Failed to save scan result:', saveError);
+      }
+      
       setScanResults(results);
       setStatus('completed');
-      toast.success('File analysis completed');
+      toast.success('File analysis completed and saved');
     } catch (error: any) {
       clearInterval(progressInterval);
       toast.error(`Analysis failed: ${error.message}`);

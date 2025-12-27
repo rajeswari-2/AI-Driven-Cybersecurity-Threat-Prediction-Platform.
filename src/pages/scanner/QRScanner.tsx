@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { ExportButton } from '@/components/ExportButton';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
 import jsQR from 'jsqr';
 
 type ScanStatus = 'idle' | 'scanning' | 'completed';
@@ -34,6 +35,7 @@ const decodeQRCode = (imageSrc: string): Promise<string | null> => {
 };
 
 export default function QRScanner() {
+  const { user } = useAuth();
   const [image, setImage] = useState<string | null>(null);
   const [status, setStatus] = useState<ScanStatus>('idle');
   const [progress, setProgress] = useState(0);
@@ -89,9 +91,25 @@ export default function QRScanner() {
 
       if (error) throw error;
       
+      // Save scan result to database
+      const { error: saveError } = await supabase.from('scan_results').insert({
+        scan_type: 'qr',
+        target: decodedUrl,
+        status: 'completed',
+        result: data,
+        threats_found: data.threats_detected?.length || 0,
+        severity: data.is_malicious ? 'critical' : 'low',
+        completed_at: new Date().toISOString(),
+        created_by: user?.id
+      });
+
+      if (saveError) {
+        console.warn('Failed to save scan result:', saveError);
+      }
+      
       setScanResults(data);
       setStatus('completed');
-      toast.success('QR analysis completed');
+      toast.success('QR analysis completed and saved');
     } catch (error: any) {
       clearInterval(progressInterval);
       toast.error(`Analysis failed: ${error.message}`);
