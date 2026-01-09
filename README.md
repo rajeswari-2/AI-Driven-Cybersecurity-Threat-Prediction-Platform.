@@ -80,6 +80,9 @@ Threat Predict is a comprehensive security monitoring and scanning platform buil
 
 This project is licensed under the MIT License.
 
-## 🎥Project-Demo Recording
+## 🚀 Deployment Link:
+https://ai-threatpredict.vercel.app/
+
+## 🎥 Project-Demo Recording
 
 https://drive.google.com/file/d/1TSdRanyzf6fCj0JgvhkLk0rfrz6YV-QR/view?usp=drive_link
