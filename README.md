@@ -84,6 +84,4 @@ This project is licensed under the MIT License.
 https://ai-threatpredict.vercel.app/
 
 ## 🎥 Project-Demo Recording
-
-https://drive.google.com/file/d/1TSdRanyzf6fCj0JgvhkLk0rfrz6YV-QR/view?usp=drive_link
 https://github.com/user-attachments/assets/ac7e15e8-a81c-4cd7-a6a8-866b49f42651
